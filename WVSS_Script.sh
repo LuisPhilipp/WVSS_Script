@@ -1,16 +1,14 @@
 #!/bin/bash
 cat << "EOF"
-
- __      ______   _____________ _________
-/  \    /  \   \ /   /   _____//   _____/
-\   \/\/   /\   Y   /\_____  \ \_____  \ 
- \        /  \     / /        \/        \
-  \__/\  /    \___/ /_______  /_______  /
-       \/                   \/        \/ 
+   __        _____  __     __    ___   __   _____  ___  _____ 
+  / / /\ /\  \_   \/ _\   / _\  / __\ /__\  \_   \/ _ \/__   \
+ / / / / \ \  / /\/\ \    \ \  / /   / \//   / /\/ /_)/  / /\/
+/ /__\ \_/ /\/ /_  _\ \   _\ \/ /___/ _  \/\/ /_/ ___/  / /   
+\____/\___/\____/  \__/   \__/\____/\/ \_/\____/\/      \/    
                                                       
 EOF
 PS3='Please enter a Task: '
-options=("network config wvss" "install mosquitto" "install Node-RED + InfluxDB" "install grafana" "install apache + TLS + Homepage" "Quit")
+options=("network config wvss" "install mosquitto" "install Node-RED + InfluxDB" "install grafana" "install apache + TLS + Homepage" "OpenVPN Server" "OpenVPN Client" "network config 2" "Quit")
 select opt in "${options[@]}"
 do
     case $opt in
@@ -108,6 +106,90 @@ EOF
   a2ensite ssl
 	   /etc/init.d/apache2 restart
 	   echo "done"
+            ;;
+"OpenVPN Server")
+apt-get install -y openvpn openssl
+modprobe tun
+echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+/etc/init.d/procps restart
+make-cadir ~/my_ca
+cd ~/my_ca
+./easyrsa clean-all
+./easyrsa build-ca nopass
+./easyrsa gen-dh
+./easyrsa build-server-full server nopass
+./easyrsa build-client-full client01 nopass
+cp ~/my_ca/pki/private/server.key /etc/openvpn/
+cp ~/my_ca/pki/issued/server.crt /etc/openvpn/
+cp ~/my_ca/pki/ca.crt /etc/openvpn/
+cp ~/my_ca/pki/dh.pem /etc/openvpn/
+echo “VPN IP eingeben”
+read LOKALVPNIPSERVER
+echo “Server LAN VPN Netz eingeben”
+read LANNETZ
+cat > /etc/openvpn/server.conf << EOF
+server $LOKALVPNIPSERVER 255.255.255.0
+port 1194
+proto udp
+dev tun
+ca ca.crt
+cert server.crt
+key server.key
+dh dh.pem
+push "route $LANNETZ 255.255.255.0"
+ping-timer-rem
+keepalive 20 180
+# verb 3
+EOF
+echo “Bitte Key auf Client übertragen”
+cat ~/my_ca/pki/private/client01.key
+echo “Bitte CA auf Client übertragen”
+cat ~/my_ca/pki/ca.crt
+echo “Bitte CRT auf Client übertragen”
+cat ~/my_ca/pki/issued/client01.crt
+ip route add $LOKALVPNIPSERVER/255.255.255.0 via $IP
+echo “Bitte neustarten”
+            ;;
+"OpenVPN Client")
+apt-get install -y openvpn openssl
+modprobe tun
+echo “Server IP eingeben”
+read SERVERIP
+cat > /etc/openvpn/client.conf << EOF
+client
+remote $SERVERIP 1194
+dev tun
+proto udp
+ca ca.crt
+cert client01.crt
+key client01.key
+remote-cert-tls server
+ping 10
+ping-restart 180
+ping-timer-rem
+# verb 3
+EOF
+echo “Bitte Key von Server übertragen”
+nano /etc/openvpn/client01.key
+echo “Bitte CA von Server übertragen”
+nano /etc/openvpn/ca.crt
+echo “Bitte CRT von Server übertragen”
+nano /etc/openvpn/client01.crt
+
+echo “Bitte neustarten”
+;;
+"network config 2")
+echo “Welche IP für den 2ten Netzwerkadapter?”
+read IPTWO
+cat >> /etc/network/interfaces << EOF
+auto enp0s8
+iface enp0s8 inet static
+address $IPTWO
+netmask 255.255.255.0
+EOF
+sudo /etc/init.d/networking restart
+echo "done"
+
             ;;
         "Quit")
             break
